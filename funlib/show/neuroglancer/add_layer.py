@@ -66,7 +66,7 @@ def add_layer(
         channel_dim_names = ["b^", "c^"]
 
         dims = len(a.data.shape)
-        spatial_dims = a.roi.dims()
+        spatial_dims = a.roi.dims
         channel_dims = dims - spatial_dims
 
         attrs = {
@@ -79,7 +79,7 @@ def add_layer(
             attrs = {k: v[::-1] for k, v in attrs.items()}
         dimensions = neuroglancer.CoordinateSpace(**attrs)
 
-        voxel_offset = [0] * channel_dims + list(a.roi.get_offset() / a.voxel_size)
+        voxel_offset = [0] * channel_dims + list(a.roi.offset / a.voxel_size)
 
     else:
         dimensions = []
@@ -90,7 +90,7 @@ def add_layer(
             channel_dim_names = ["b^", "c^"]
 
             dims = len(a.data.shape)
-            spatial_dims = a.roi.dims()
+            spatial_dims = a.roi.dims
             channel_dims = dims - spatial_dims
 
             attrs = {
@@ -107,7 +107,7 @@ def add_layer(
 
             if voxel_offset is None:
                 voxel_offset = [0] * channel_dims + list(
-                    a.roi.get_offset() / a.voxel_size
+                    a.roi.offset / a.voxel_size
                 )
 
     if reversed_axes:
@@ -115,7 +115,7 @@ def add_layer(
 
     if shader is None:
         a = array if not is_multiscale else array[0]
-        dims = a.roi.dims()
+        dims = a.roi.dims
         if dims < len(a.data.shape):
             channels = a.data.shape[0]
             if channels > 1:
