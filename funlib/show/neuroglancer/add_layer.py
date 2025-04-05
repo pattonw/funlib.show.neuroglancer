@@ -6,7 +6,7 @@ from funlib.persistence import Array
 rgb_shader_code = """
 void main() {
     emitRGB(
-        vec3(
+        %f*vec3(
             toNormalized(getDataValue(%i)),
             toNormalized(getDataValue(%i)),
             toNormalized(getDataValue(%i)))
