@@ -17,5 +17,5 @@ dependencies = [
     "numpy",
     "zarr",
     "funlib.geometry >= 0.3.0",
-    "funlib.persistence >= 0.5.0",
+    "funlib.persistence >= 0.6.0",
 ]
