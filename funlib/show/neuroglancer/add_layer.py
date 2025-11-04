@@ -43,16 +43,16 @@ def create_coordinate_space(
 ) -> tuple[neuroglancer.CoordinateSpace, list[int]]:
     assert array.spatial_dims > 0
 
-    def interleave(list, fill_value, axis_names):
-        return_list = [fill_value] * len(axis_names)
-        for i, name in enumerate(axis_names):
-            if "^" not in name:
+    def interleave(list, fill_value, types):
+        return_list = [fill_value] * len(types)
+        for i, axis_type in enumerate(types):
+            if axis_type not in ["time", "space"]:
                 return_list[i] = list.pop(0)
         return return_list
 
-    units = interleave(list(array.units), "", array.axis_names)
-    scales = interleave(list(array.voxel_size), 1, array.axis_names)
-    offset = interleave(list(array.offset / array.voxel_size), 0, array.axis_names)
+    units = interleave(list(array.units), "", array.types)
+    scales = interleave(list(array.voxel_size), 1, array.types)
+    offset = interleave(list(array.offset / array.voxel_size), 0, array.types)
 
     return (
         neuroglancer.CoordinateSpace(
