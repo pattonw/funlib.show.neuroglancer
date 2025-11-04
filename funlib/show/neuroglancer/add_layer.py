@@ -51,7 +51,7 @@ def create_coordinate_space(
         return return_list
 
     axis_names = [
-        f"{name}" if axis_type in ["time", "space"] else f"{name}^"
+        f"{name}" if (axis_type in ["time", "space"] or "^" in name) else f"{name}^"
         for name, axis_type in zip(array.axis_names, array.types)
     ]
     units = interleave(list(array.units), "", array.types)
