@@ -4,4 +4,5 @@ from .video_tool import (
     run_render as run_render,
 )
 from .scale_pyramid import ScalePyramid as ScalePyramid
-from .add_layer import add_layer as add_layer
+# from .add_layer import add_layer as add_layer
+from .visualize import visualize as visualize

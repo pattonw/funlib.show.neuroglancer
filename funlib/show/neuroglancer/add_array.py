@@ -3,15 +3,23 @@ import neuroglancer
 from funlib.persistence import Array
 
 import numpy as np
+from dataclasses import dataclass
+from collections.abc import Sequence
 
 
-rgb_shader_code = """
+@dataclass
+class ShaderMetadata:
+    dtype: np.dtype
+    channel_dims: Sequence[int]
+
+
+color = """
 void main() {
     emitRGB(
-        %f*vec3(
-            toNormalized(getDataValue(%i)),
-            toNormalized(getDataValue(%i)),
-            toNormalized(getDataValue(%i)))
+        vec3(
+            toNormalized(getDataValue(0)),
+            toNormalized(getDataValue(1)),
+            toNormalized(getDataValue(2)))
         );
 }"""
 
@@ -64,9 +72,7 @@ def create_coordinate_space(
     ]
 
     return (
-        neuroglancer.CoordinateSpace(
-            names=axis_names, units=units, scales=scales
-        ),
+        neuroglancer.CoordinateSpace(names=axis_names, units=units, scales=scales),
         offset,
     )
 
@@ -143,6 +149,7 @@ def create_shader_code(
     if shader == "heatmap":
         return heatmap_shader_code
 
+
 def make_neuroglancer_compatible(array: Array):
     """
     Make the `funlib.persistence.Array` compatible with neuroglancer.
@@ -156,16 +163,13 @@ def make_neuroglancer_compatible(array: Array):
         # neuroglancer does not support int64 arrays, convert to uint64
         array.lazy_op(lambda data: data.astype(np.uint64))
 
+
 def add_layer(
     context,
     array: Array | list[Array],
     name: str,
-    opacity: float | None = None,
     shader: str | None = None,
-    rgb_channels=None,
-    color=None,
-    visible=True,
-    value_scale_factor=1.0,
+    channel_dim: int | None = None,
 ):
     """Add a layer to a neuroglancer context.
 
@@ -178,33 +182,11 @@ def add_layer(
 
         array:
 
-            A ``daisy``-like array, containing attributes ``roi``,
-            ``voxel_size``, and ``data``. If a list of arrays is given, a
-            ``ScalePyramid`` layer is generated.
+            A ``funlib.persistence.Array``
 
         name:
 
             The name of the layer.
-
-        opacity:
-
-            A float to define the layer opacity between 0 and 1.
-
-        shader:
-
-            A string to be used as the shader. Possible values are:
-
-                None     :  neuroglancer's default shader
-                'rgb'    :  An RGB shader on dimension `'c^'`. See argument
-                            ``rgb_channels``.
-                'color'  :  Shows intensities as a constant color. See argument
-                            ``color``.
-                'binary' :  Shows a binary image as black/white.
-                'heatmap':  Shows an intensity image as a jet color map.
-
-        rgb_channels:
-
-            Which channels to use for RGB (default is ``[0, 1, 2]``).
 
         color:
 
@@ -218,69 +200,67 @@ def add_layer(
         value_scale_factor:
 
             A float to scale array values with for visualization.
-
-        units:
-
-            The units used for resolution and offset.
     """
+    # shader metadata:
+    dtype = array.dtype
+    if channel_dim is None:
+        assert array.channel_dims <= 1, (
+            "Cannot handle multiple channel dimensions. "
+            "Please specify a channel dimension"
+        )
+        if array.channel_dims == 1:
+            channel_dim = [
+                i for i, t in enumerate(array.types) if t not in ["time", "space"]
+            ][0]
+    num_channels = array.shape[channel_dim] if channel_dim is not None else None
+
+    # guess shader based on dtype/num_channels
+    if dtype in [bool, np.bool] and (num_channels is None or num_channels == 1):
+        # mask array. Will be converted to float
+        volume_type = "image"
+        shader = None  # Gray is default
+    elif dtype in [bool, np.bool] and num_channels > 1:
+        # color mask array. Will be converted to float
+        volume_type = "image"
+        shader = color
+    elif dtype in [np.uint8, np.uint16, np.float16, np.float32, np.float64, float] and (
+        num_channels is None or num_channels == 1
+    ):
+        # grey scale integer embedding
+        volume_type = "image"
+        shader = None  # Gray is default
+    elif dtype in [np.uint8, np.uint16, np.float16, np.float32, np.float64, float] and (
+        1 < num_channels <= 3
+    ):
+        # color images
+        volume_type = "image"
+        shader = color
+    elif dtype in [np.uint8, np.uint16, np.float16, np.float32, np.float64, float] and (
+        num_channels > 3
+    ):
+        # too many colors
+        volume_type = "image"
+        raise NotImplementedError("Ahh")
+        shader = "color-pca"
+    else:
+        volume_type = "segmentation"
+        shader = None
 
     # make the array compatible with neuroglancer
-    shader, layer_type = make_neuroglancer_compatible(array)
+    make_neuroglancer_compatible(array)
 
-    if rgb_channels is None:
-        rgb_channels = [0, 1, 2]
+    dimensions, voxel_offset = create_coordinate_space(array)
 
-    is_multiscale = isinstance(array, list)
+    layer = neuroglancer.LocalVolume(
+        data=array.data,
+        voxel_offset=voxel_offset,
+        dimensions=dimensions,
+        volume_type=volume_type,
+    )
 
-    if is_multiscale:
-        dimensions = []
-        for a in array:
-            dimensions.append(create_coordinate_space(a))
+    # if shader is not None:
+    #     shader_code = create_shader_code(shader, array)
+    # else:
+    #     shader_code = None
 
-        layer = ScalePyramid(
-            [
-                neuroglancer.LocalVolume(
-                    data=a.data, voxel_offset=voxel_offset, dimensions=array_dims
-                )
-                for a, (array_dims, voxel_offset) in zip(array, dimensions)
-            ]
-        )
-
-        array = array[0]
-
-    else:
-        dimensions, voxel_offset = create_coordinate_space(array)
-
-        layer = neuroglancer.LocalVolume(
-            data=array.data,
-            voxel_offset=voxel_offset,
-            dimensions=dimensions,
-        )
-
-    if shader is not None:
-        shader_code = create_shader_code(
-            shader, array.channel_dims, rgb_channels, color, value_scale_factor
-        )
-    else:
-        shader_code = None
-
-    if opacity is not None:
-        if shader_code is None:
-            context.layers.append(
-                name=name, layer=layer, visible=visible, opacity=opacity
-            )
-        else:
-            context.layers.append(
-                name=name,
-                layer=layer,
-                visible=visible,
-                shader=shader_code,
-                opacity=opacity,
-            )
-    else:
-        if shader_code is None:
-            context.layers.append(name=name, layer=layer, visible=visible)
-        else:
-            context.layers.append(
-                name=name, layer=layer, visible=visible, shader=shader_code
-            )
+    context.layers.append(name=name, layer=layer, shader=shader)

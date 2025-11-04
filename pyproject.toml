@@ -7,6 +7,7 @@ name = "funlib.show.neuroglancer"
 version = "0.2"
 description = ""
 readme = "README.md"
+requires-python = ">=3.11"
 authors = [{ name = "Jan Funke", email = "funkej@janelia.hhmi.org" }]
 license = { text = "MIT" }
 
@@ -18,4 +19,13 @@ dependencies = [
     "zarr",
     "funlib.geometry >= 0.3.0",
     "funlib.persistence >= 0.6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["funlib"]
+
+[project.optional-dependencies]
+docs = [
+    "ipykernel>=6.29.5",
+    "scikit-image>=0.25.2",
 ]
