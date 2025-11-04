@@ -46,17 +46,21 @@ def create_coordinate_space(
     def interleave(list, fill_value, types):
         return_list = [fill_value] * len(types)
         for i, axis_type in enumerate(types):
-            if axis_type not in ["time", "space"]:
+            if axis_type in ["time", "space"]:
                 return_list[i] = list.pop(0)
         return return_list
 
+    axis_names = [
+        f"{name}" if axis_type in ["time", "space"] else f"{name}^"
+        for name, axis_type in zip(array.axis_names, array.types)
+    ]
     units = interleave(list(array.units), "", array.types)
     scales = interleave(list(array.voxel_size), 1, array.types)
     offset = interleave(list(array.offset / array.voxel_size), 0, array.types)
 
     return (
         neuroglancer.CoordinateSpace(
-            names=array.axis_names, units=units, scales=scales
+            names=axis_names, units=units, scales=scales
         ),
         offset,
     )
