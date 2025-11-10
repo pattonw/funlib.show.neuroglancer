@@ -21,6 +21,11 @@ def visualize(
         for name, array in arrays.items():
             add_layer(s, array, name)
 
+    if all((array.dims - array.channel_dims) <= 2 for array in arrays.values()):
+        with viewer.txn() as s:
+            # set view to xy plane for 2D arrays
+            s.layout = "xy"
+
     url = str(viewer)
     print(url)
     if os.environ.get("DISPLAY") and browser:
