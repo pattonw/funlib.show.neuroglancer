@@ -41,9 +41,6 @@ array = Array(
 )
 
 visualize({"face": array}, bind_address="localhost")
-# problems:
-# 1. fails to open (axis_name parsing left over from old `funlib.persistence` API)
-# 2. gray scale shader
 
 # %%
 # 3D 2 color array
@@ -56,8 +53,6 @@ array = Array(
 )
 
 visualize({"cells": array}, bind_address="localhost")
-# problems:
-# 1. gray scale shader
 
 # %%
 # binary blobs 3D
@@ -70,8 +65,6 @@ array = Array(
 )
 
 visualize({"blobs": array}, bind_address="localhost")
-# problems:
-# 1. fails to load (np.bool is not supported)
 
 # %%
 # binary blobs 4D plus color
@@ -89,8 +82,6 @@ array = Array(
 )
 
 visualize({"blobs": array}, bind_address="localhost")
-# problems:
-# 1. gray scale shader
 
 # %%
 # segmentation layers uint32, uint64, int32, int64
@@ -112,9 +103,3 @@ arrays = {
     ]
 }
 visualize(arrays, bind_address="localhost")
-
-# problems:
-# 1. not loaded in as Segmentation layers
-# 2. int64 not supported by neuroglancer
-
-# %%
