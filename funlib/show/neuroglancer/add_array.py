@@ -258,9 +258,7 @@ def add_layer(
         volume_type=volume_type,
     )
 
-    # if shader is not None:
-    #     shader_code = create_shader_code(shader, array)
-    # else:
-    #     shader_code = None
-
-    context.layers.append(name=name, layer=layer, shader=shader)
+    if volume_type == "segmentation":
+        context.layers.append(name=name, layer=layer)
+    else:
+        context.layers.append(name=name, layer=layer, shader=shader)
