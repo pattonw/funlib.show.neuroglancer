@@ -54,16 +54,20 @@ def create_coordinate_space(
     assert array.spatial_dims > 0
 
     def interleave(list, fill_value, axis_types):
+        """
+        Fill in values for non spatial axes.
+        """
         return_list = [fill_value] * len(axis_types)
         for i, axis_type in enumerate(axis_types):
-            if axis_type not in ["time", "space"]:
+            if axis_type in ["time", "space"]:
                 return_list[i] = list.pop(0)
         return return_list
 
     units = interleave(list(array.units), "", array.types)
     scales = interleave(list(array.voxel_size), 1, array.types)
-    offset = interleave(list(array.offset / array.voxel_size), 0, array.types)
-
+    offset = interleave(
+        [o / v for o, v in zip(array.offset, array.voxel_size)], 0, array.types
+    )
     axis_names = [
         axis_name
         if axis_type in ["time", "space"] or axis_type.endswith("^")
@@ -71,9 +75,13 @@ def create_coordinate_space(
         for axis_name, axis_type in zip(array.axis_names, array.types)
     ]
 
+    affine_transform = np.eye(len(scales) + 1)[:-1, :].tolist()
+    for i, off in enumerate(offset):
+        affine_transform[i][-1] = off
+
     return (
         neuroglancer.CoordinateSpace(names=axis_names, units=units, scales=scales),
-        offset,
+        affine_transform,
     )
 
 
@@ -240,8 +248,7 @@ def add_layer(
     ):
         # too many colors
         volume_type = "image"
-        raise NotImplementedError("Ahh")
-        shader = "color-pca"
+        shader = color
     else:
         volume_type = "segmentation"
         shader = None
@@ -249,16 +256,36 @@ def add_layer(
     # make the array compatible with neuroglancer
     make_neuroglancer_compatible(array)
 
-    dimensions, voxel_offset = create_coordinate_space(array)
+    dimensions, affine_transform = create_coordinate_space(array)
 
     layer = neuroglancer.LocalVolume(
         data=array.data,
-        voxel_offset=voxel_offset,
         dimensions=dimensions,
         volume_type=volume_type,
     )
 
     if volume_type == "segmentation":
-        context.layers.append(name=name, layer=layer)
+        context.layers[name] = neuroglancer.SegmentationLayer(
+            source=[
+                neuroglancer.LayerDataSource(
+                    layer,
+                    transform=neuroglancer.CoordinateSpaceTransform(
+                        output_dimensions=dimensions,
+                        matrix=affine_transform,
+                    ),
+                )
+            ],
+        )
     else:
-        context.layers.append(name=name, layer=layer, shader=shader)
+        context.layers[name] = neuroglancer.ImageLayer(
+            source=[
+                neuroglancer.LayerDataSource(
+                    layer,
+                    transform=neuroglancer.CoordinateSpaceTransform(
+                        output_dimensions=dimensions,
+                        matrix=affine_transform,
+                    ),
+                )
+            ],
+            **({"shader": shader} if shader is not None else {}),
+        )

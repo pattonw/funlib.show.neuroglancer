@@ -15,6 +15,7 @@ from funlib.persistence import Array
 import numpy as np
 from skimage import data
 from skimage.measure import label
+import networkx as nx
 
 # %%
 # First a simple 2D gray scale array
@@ -24,8 +25,21 @@ array = Array(
     voxel_size=(1, 1),
     offset=(0, 0),
 )
+graph = nx.Graph()
+graph.add_nodes_from(
+    [
+        (0, {"position": (10, 20), "skeleton_id": 1}),
+        (1, {"position": (50, 80), "skeleton_id": 1}),
+        (2, {"position": (80, 120), "skeleton_id": 2}),
+        (3, {"position": (120, 150), "skeleton_id": 2}),
+    ]
+)
+graph.add_edges_from([(0, 1), (2, 3)])
+graph.graph["axis_names"] = ["y", "x"]
+graph.graph["voxel_size"] = [1, 1]
+graph.graph["offset"] = [0, 0]
 
-visualize({"camera": array}, bind_address="localhost")
+visualize({"camera": array}, graphs={"test": graph}, bind_address="localhost")
 # problems:
 # 1. neuroglancer opens in 3D viewer but the array is 2D
 # 2. the array is unexpectedly transposed
@@ -103,3 +117,27 @@ arrays = {
     ]
 }
 visualize(arrays, bind_address="localhost")
+
+# %%
+# fractional voxel offset
+data = data.camera()
+data_downsampled = data[::4, ::4]
+
+offset = (2, 2)
+
+camera_array = Array(
+    data=data,
+    axis_names=["y", "x"],
+    voxel_size=(1, 1),
+    offset=offset,
+)
+downsampled_camera_array = Array(
+    data=data_downsampled,
+    axis_names=["y", "x"],
+    voxel_size=(4, 4),
+    offset=offset,
+)
+visualize(
+    arrays={"camera": camera_array, "downsampled_camera": downsampled_camera_array},
+    bind_address="localhost",
+)
