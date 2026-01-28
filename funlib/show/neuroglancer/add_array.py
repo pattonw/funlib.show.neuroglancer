@@ -70,7 +70,7 @@ def create_coordinate_space(
     )
     axis_names = [
         axis_name
-        if axis_type in ["time", "space"] or axis_type.endswith("^")
+        if axis_type in ["time", "space"] or axis_name.endswith("^")
         else f"{axis_name}^"
         for axis_name, axis_type in zip(array.axis_names, array.types)
     ]
