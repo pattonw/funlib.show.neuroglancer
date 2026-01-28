@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["funlib"]
+include = ["funlib*"]
 
 [project.optional-dependencies]
 docs = [
