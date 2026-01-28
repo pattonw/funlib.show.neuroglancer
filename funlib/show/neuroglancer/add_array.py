@@ -6,6 +6,8 @@ import numpy as np
 from dataclasses import dataclass
 from collections.abc import Sequence
 
+import re
+
 
 @dataclass
 class ShaderMetadata:
@@ -74,6 +76,7 @@ def create_coordinate_space(
         else f"{axis_name}^"
         for axis_name, axis_type in zip(array.axis_names, array.types)
     ]
+    axis_names = [re.sub(r'[^a-zA-Z0-9 \n\._]', '', axis_name) for axis_name in axis_names]
 
     affine_transform = np.eye(len(scales) + 1)[:-1, :].tolist()
     for i, off in enumerate(offset):
