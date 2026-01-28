@@ -1,141 +1,194 @@
 #!/usr/bin/env python
 
-from funlib.show.neuroglancer import add_layer
-from funlib.persistence import open_ds
-import argparse
+import click
 import glob
-import neuroglancer
 import os
-import webbrowser
+import sys
+import numpy as np
 from pathlib import Path
-import numpy as np  # noqa: F401 This import is used in the eval statement below
+
+from funlib.persistence import open_ds
+# Assuming visualize is available in the same package
+from funlib.show.neuroglancer import visualize
+
+# Initialize S3 filesystem once
+try:
+    import s3fs
+    s3 = s3fs.S3FileSystem()
+except ImportError:
+    s3 = None
 
 
-def parse_ds_name(ds):
-    if ":" in ds:
-        ds, *slices = ds.split(":")
+def parse_slice(slice_str):
+    """Safely parses a slice string into a numpy slice object."""
+    if not slice_str:
+        return None
+    if not slice_str.startswith("[") and not slice_str.startswith("("):
+        slice_str = f"[{slice_str}]"
+    try:
+        return eval(f"np.s_{slice_str}")
+    except Exception as e:
+        raise click.BadParameter(f"Invalid slice format '{slice_str}': {e}")
+
+def expand_paths(path_str):
+    """
+    Handles wildcard expansion for both Local and S3 paths.
+    Returns a list of valid path strings.
+    """
+    # 1. Handle S3 Paths
+    if path_str.startswith("s3://"):
+        assert s3 is not None, "s3fs failed to import"
+        # If there is a wildcard, ask s3fs to glob it
+        if glob.has_magic(path_str):
+            # s3fs.glob returns paths like 'bucket/path/file', so we add s3:// back
+            return [f"s3://{p}" for p in s3.glob(path_str)]
+        return [path_str]
+    
+    # 2. Handle Local Paths
     else:
-        ds, *slices = ds.split("[")
+        expanded = glob.glob(path_str)
+        if not expanded and not glob.has_magic(path_str):
+            # If no magic chars, it might be a direct file that glob missed 
+            # or simply doesn't exist yet (but we return it for the opener to try)
+            return [path_str]
+        return expanded
 
-    if len(slices) == 0:
-        return ds, None
-    elif len(slices) == 1:
-        slices = slices[0].strip("[]")
-        if len(slices) == 0:
-            slices = ":"
-        slices = eval(f"np.s_[{slices}]")
-        return ds, slices
+def find_pyramid_scales(ds_path):
+    """
+    Looks for 's0', 's1', etc. subdirectories.
+    Returns sorted list of full paths or empty list.
+    """
+    # 1. Handle S3
+    if ds_path.startswith("s3://"):
+        # s3.glob returns 'bucket/key/s0', need to prepend s3://
+        # We look for path/s*
+        assert s3 is not None, "s3fs failed to import"
+        scales = sorted(s3.glob(f"{ds_path}/s*"))
+        return [f"s3://{s}" for s in scales]
+
+    # 2. Handle Local
     else:
-        raise ValueError("Used multiple sets of brackets")
+        return sorted(glob.glob(f"{ds_path}/s*"))
 
-
-class SliceAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        dest = getattr(namespace, self.dest)
-        if dest is None:
-            dest = []
-            setattr(namespace, self.dest, dest)
-        assert isinstance(
-            dest, list
-        ), "Only one --slice/-s argument allowed to follow --dataset/-d"
-        assert (
-            len(dest) > 0
-        ), "The --slice/-s argument has to follow a --dataset/-d argument"
-        assert (
-            len(values) == 1
-        ), "The --slice/-s option should have exactly one argument"
-
-        dest[-1] = (dest[-1], values[0])
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument(
+@click.command(context_settings=dict(ignore_unknown_options=True))
+@click.option(
     "--dataset",
     "-d",
-    type=str,
-    nargs="+",
-    action="append",
-    help="The paths to the datasets to show",
-    dest="datasetslice",
+    multiple=True,
+    help="Path to a dataset (Local or S3).",
 )
-parser.add_argument(
-    "--slices",
+@click.option(
+    "--slice",
     "-s",
-    type=str,
-    nargs="+",
-    action=SliceAction,
-    help="A slice operation to apply to the given datasets",
-    dest="datasetslice",
+    "slices",
+    multiple=True,
+    help="Slice to apply.",
 )
-parser.add_argument(
+@click.option(
     "--no-browser",
     "-n",
-    type=bool,
-    default=False,
-    help="If set, do not open a browser, just print a URL",
+    is_flag=True,
+    help="If set, do not open a browser.",
 )
-parser.add_argument(
+@click.option(
     "--bind-address",
     "-b",
-    type=str,
     default="0.0.0.0",
-    help="Bind address",
+    help="Bind address.",
 )
-parser.add_argument("--port", type=int, default=0, help="The port to bind to.")
+@click.option(
+    "--port",
+    type=int,
+    default=0,
+    help="The port to bind to.",
+)
+@click.argument("extra_datasets", nargs=-1)
+def main(dataset, slices, no_browser, bind_address, port, extra_datasets):
+    """
+    Visualizes datasets in Neuroglancer (Local or S3).
+    
+    Example:
+    neuroglancer -d s3://my-bucket/data.zarr/{raw,labels} -b localhost
+    """
+    
+    all_dataset_inputs = list(dataset) + list(extra_datasets)
 
+    if not all_dataset_inputs:
+        click.echo("No datasets specified.")
+        sys.exit(0)
 
-def main():
-    args = parser.parse_args()
+    combined_inputs = []
+    for i, ds_pattern in enumerate(all_dataset_inputs):
+        s = slices[i] if i < len(slices) else None
+        combined_inputs.append((ds_pattern, s))
 
-    neuroglancer.set_server_bind_address(args.bind_address, bind_port=args.port)
-    viewer = neuroglancer.Viewer()
+    arrays_to_show = {}
 
-    for datasetslice in args.datasetslice:
-        if isinstance(datasetslice, tuple):
-            datasets, slices = datasetslice[0], eval(f"np.s_[{datasetslice[1]}]")
-        elif isinstance(datasetslice, list):
-            datasets, slices = datasetslice, None
-        else:
-            raise NotImplementedError("Unreachable!")
+    for path_input, slice_str in combined_inputs:
+        
+        current_slice = parse_slice(slice_str)
+        
+        # Expand wildcards (S3 aware)
+        paths = expand_paths(path_input)
 
-        for glob_path in datasets:
-            print(f"Adding {glob_path} with slices {slices}")
-            for ds_path in glob.glob(glob_path):
-                ds_path = Path(ds_path)
+        for ds_path in paths:
+            if not ds_path: 
+                continue
+
+            # Determine a display name (Last part of the path)
+            layer_name = Path(ds_path).name
+
+            # --- Attempt Open ---
+            try:
+                click.echo(f"Opening {ds_path}...")
+                # Note: open_ds handles s3:// strings if s3fs is installed
+                array_obj = open_ds(ds_path)
+                array_pyramid = [array_obj]
+            except Exception as e:
+                # Fallback: Check for multi-resolution pyramid
+                scales = find_pyramid_scales(ds_path)
+                
+                if not scales:
+                    click.echo(f"Skipping {ds_path}: {e}")
+                    continue
+                
+                click.echo(f"Found scales for {layer_name}: {[Path(s).name for s in scales]}")
                 try:
-                    print("Adding %s" % (ds_path))
-                    array = open_ds(ds_path)
-                    arrays = [(array, ds_path)]
+                    array_pyramid = [open_ds(scale) for scale in scales]
+                except Exception as pyramid_e:
+                    click.echo(f"Failed to open scales for {ds_path}: {pyramid_e}")
+                    continue
 
-                except Exception as e:
-                    print(type(e), e)
-                    print("Didn't work, checking if this is multi-res...")
+            # --- Apply Slice ---
+            if current_slice is not None:
+                click.echo(f"Applying slice {slice_str} to {layer_name}")
+                for arr in array_pyramid:
+                    arr.lazy_op(current_slice)
 
-                    scales = glob.glob(f"{ds_path}/s*")
-                    if len(scales) == 0:
-                        print(f"Couldn't read {ds_path}, skipping...")
-                        raise e
-                    print(
-                        "Found scales %s"
-                        % ([os.path.relpath(s, ds_path) for s in scales],)
-                    )
-                    arrays = [([open_ds(scale_ds) for scale_ds in scales], ds_path)]
+            # --- Add to Dict ---
+            final_obj = array_pyramid if len(array_pyramid) > 1 else array_pyramid[0]
+            
+            unique_name = layer_name
+            count = 1
+            while unique_name in arrays_to_show:
+                unique_name = f"{layer_name}_{count}"
+                count += 1
+            
+            arrays_to_show[unique_name] = final_obj
 
-                for array, _ in arrays:
-                    if not isinstance(array, list):
-                        array = [array]
-                    for arr in array:
-                        if slices is not None:
-                            arr.lazy_op(slices)
+    if not arrays_to_show:
+        click.echo("No arrays successfully loaded.")
+        sys.exit(1)
 
-                with viewer.txn() as s:
-                    for array, dataset in arrays:
-                        add_layer(s, array, Path(dataset).name)
+    click.echo(f"Visualizing {len(arrays_to_show)} layers...")
+    
+    visualize(
+        arrays=arrays_to_show,
+        graphs=None,
+        bind_address=bind_address,
+        port=port,
+        browser=not no_browser
+    )
 
-    url = str(viewer)
-    print(url)
-    if os.environ.get("DISPLAY") and not args.no_browser:
-        webbrowser.open_new(url)
-
-    print("Press ENTER to quit")
-    input()
+if __name__ == "__main__":
+    main()

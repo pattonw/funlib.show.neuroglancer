@@ -25,6 +25,10 @@ dependencies = [
 include = ["funlib*"]
 
 [project.optional-dependencies]
+s3 = [
+
+    "s3fs>=2026.1.0",
+]
 docs = [
     "ipykernel>=6.29.5",
     "scikit-image>=0.25.2",
