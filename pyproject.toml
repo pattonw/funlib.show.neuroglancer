@@ -18,7 +18,7 @@ dependencies = [
     "numpy",
     "zarr",
     "funlib.geometry >= 0.3.0",
-    "funlib.persistence >= 0.6.0",
+    "funlib.persistence >= 0.7.0",
 ]
 
 [tool.setuptools.packages.find]
